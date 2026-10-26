@@ -354,6 +354,14 @@ class InstallTests(unittest.TestCase):
         self.assertFalse(gateway["server"]["tls"]["enableMtls"])
         self.assertIsNone(gateway["securityContext"]["runAsUser"])
 
+    def test_example_pulls_the_odh_dashboard_image_by_digest(self):
+        _, dashboard = installer.chart_values(self.load())
+        image = dashboard["dashboard"]["image"]
+        self.assertEqual(image["registry"], "quay.io")
+        self.assertEqual(image["repository"], "opendatahub/odh-openshell-dashboard")
+        self.assertRegex(image["digest"], r"^sha256:[0-9a-f]{64}$")
+        self.assertNotIn("tag", image)
+
     def test_existing_admin_namespace_preserves_metadata_and_targets_releases(self):
         self.config["namespace"] = "research-team"
         cluster = self.cluster()

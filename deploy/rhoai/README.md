@@ -91,6 +91,16 @@ claims. The two versions need not have the same patch number. The dashboard OCI
 reference currently points to its upstream publisher, not an ODH chart registry.
 Both chart references are configurable for mirrors.
 
+The example pulls the dashboard image from ODH, not from the chart's default
+(the upstream publisher's personal registry). `dashboard.images.dashboard` pins
+`quay.io/opendatahub/odh-openshell-dashboard` by digest. Konflux builds that
+image on every push to the ODH fork's `main` and tags it `odh-stable` and with
+the fork commit; there are no version tags. The pinned digest is the build of
+fork commit `ae76c31`, which is upstream dashboard `v0.1.2`, so pair it with
+dashboard chart `0.1.2`. To move to a newer build, take the digest of the
+fork-commit tag and the chart version of the upstream commit that fork commit
+merged.
+
 For ODH images, select the development chart matching the upstream commit of
 the downstream build, then set `gateway.images` to the downstream registry,
 repositories, and image tags/digests. The installer does not infer that mapping

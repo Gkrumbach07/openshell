@@ -174,10 +174,11 @@ class InstallTests(unittest.TestCase):
             ("gateway", "gateway"),
             ("gateway", "supervisor"),
             ("gateway", "sandboxRuntime"),
+            ("gateway", "sandbox"),
             ("dashboard", "dashboard"),
         ):
             with self.subTest(section=section, component=component):
-                self.config[section]["images"][component]["digest"] = (
+                self.config[section]["images"].setdefault(component, {})["digest"] = (
                     "REPLACE_WITH_VERIFIED_IMAGE_DIGEST"
                 )
                 with self.assertRaisesRegex(ValueError, "digest must be sha256"):
@@ -194,7 +195,7 @@ class InstallTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "digest must be sha256"):
                     self.load()
 
-    def test_empty_image_digest_allows_tag_fallback(self):
+    def test_empty_image_digest_is_accepted_and_passed_to_chart_values(self):
         image = self.config["gateway"]["images"]["gateway"]
         image["digest"] = ""
         image["tag"] = "v0.1.3-rhaiv.3"
@@ -219,7 +220,7 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(stderr.getvalue(), "")
 
         self.config["oidc"]["user_role"] = "openshell-user"
-        for version in ("0.1.2", "0.1.2+build.1"):
+        for version in ("0.1.2", "0.1.2+build.1", "0.0.0-dev.e7fdd6b"):
             with self.subTest(version=version):
                 self.config["dashboard"]["version"] = version
                 stderr = io.StringIO()
@@ -434,16 +435,29 @@ class InstallTests(unittest.TestCase):
                 "repository": f"team/{component.lower()}",
                 "digest": f"sha256:{digit * 64}",
             }
+        self.config["gateway"]["images"]["sandbox"] = {
+            "repository": "team/base-sandbox",
+            "tag": "24.04",
+        }
         gateway, dashboard = installer.chart_values(self.load())
         for name, component, values in (
             ("gateway", "gateway", gateway),
             ("gateway", "supervisor", gateway),
             ("gateway", "sandboxRuntime", gateway),
+            ("gateway", "sandbox", gateway),
             ("dashboard", "dashboard", dashboard),
         ):
             self.assertEqual(
                 values[component]["image"], self.config[name]["images"][component]
             )
+
+    def test_sandbox_image_rejects_registry(self):
+        self.config["gateway"]["images"]["sandbox"] = {
+            "registry": "registry.example.com",
+            "repository": "team/base-sandbox",
+        }
+        with self.assertRaisesRegex(ValueError, "Unknown"):
+            self.load()
 
     def test_existing_admin_namespace_preserves_metadata_and_targets_releases(self):
         self.config["namespace"] = "research-team"

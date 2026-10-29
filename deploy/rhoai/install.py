@@ -30,13 +30,15 @@ GATEWAY_HOST = "openshell.ai/installer-gateway-host"
 INSTALL_STATE = "openshell-installer"
 OIDC_SECRET = "openshell-dashboard-oidc"
 OIDC_CA = "openshell-oidc-ca"
+MIN_DASHBOARD_USER_ROLE_CHART = (0, 1, 2)
 VERSION = re.compile(
     r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
-    r"(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+    r"(?P<prerelease>-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
     r"(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
 )
 DNS = re.compile(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?")
+DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 # Expose operational chart settings without allowing overlays to replace the
 # installer's identity, TLS, service naming, or namespace contract.
@@ -148,14 +150,21 @@ def load_config(path, namespace=None):
             isinstance(item["chart"], str) and item["chart"].startswith("oci://"),
             f"{name}.chart must be an OCI chart reference",
         )
+        version_match = (
+            VERSION.fullmatch(item["version"])
+            if isinstance(item["version"], str)
+            else None
+        )
         require(
-            isinstance(item["version"], str) and VERSION.fullmatch(item["version"]),
+            version_match,
             f"{name}.version must be exact SemVer (no latest or version ranges)",
         )
         require(
             item["version"] != "0.0.0",
             "Use a published release or pinned development version",
         )
+        if name == "dashboard":
+            dashboard_version_match = version_match
         sources = item.get("values_files", [])
         require(
             isinstance(sources, list)
@@ -204,7 +213,7 @@ def load_config(path, namespace=None):
             )
             if image.get("digest"):
                 require(
-                    re.fullmatch(r"sha256:[0-9a-f]{64}", image["digest"]),
+                    DIGEST.fullmatch(image["digest"]),
                     f"{name}.images.{component}.digest must be sha256: followed by "
                     "64 lowercase hexadecimal characters",
                 )
@@ -286,17 +295,22 @@ def load_config(path, namespace=None):
                 f"Missing or empty oidc.{key}",
             )
             oidc[key] = str(source)
-    dashboard_release = config["dashboard"]["version"].split("+", 1)[0]
-    dashboard_core, prerelease_separator, _ = dashboard_release.partition("-")
-    dashboard_version = tuple(int(part) for part in dashboard_core.split("."))
-    before_role_chart = dashboard_version < (0, 1, 2) or (
-        dashboard_version == (0, 1, 2) and bool(prerelease_separator)
+    dashboard_version = tuple(
+        int(part) for part in dashboard_version_match.group(1, 2, 3)
     )
-    if before_role_chart and oidc["user_role"] != "user":
+    prerelease = dashboard_version_match.group("prerelease")
+    before_role_chart = dashboard_version < MIN_DASHBOARD_USER_ROLE_CHART or (
+        dashboard_version == MIN_DASHBOARD_USER_ROLE_CHART and prerelease is not None
+    )
+    is_development_chart = dashboard_version == (0, 0, 0) and (
+        prerelease or ""
+    ).startswith("-dev.")
+    if before_role_chart and not is_development_chart and oidc["user_role"] != "user":
+        minimum_chart = ".".join(str(part) for part in MIN_DASHBOARD_USER_ROLE_CHART)
         print(
-            "Warning: dashboard charts before 0.1.2 may not pass oidc.userRole. "
+            f"Warning: dashboard charts before {minimum_chart} may not pass oidc.userRole. "
             "Dashboard builds with the entitlement page may deny users with only "
-            f"the {oidc['user_role']!r} role. Pair chart 0.1.2 or later with a "
+            f"the {oidc['user_role']!r} role. Pair chart {minimum_chart} or later with a "
             "matching image, or use a pre-entitlement dashboard build.",
             file=sys.stderr,
         )

@@ -17,6 +17,10 @@ accepting a version does not establish chart or image compatibility.
 
 ## Live validation
 
+The current `config.example.json` selects ODH images with digest placeholders.
+The live smoke checks below used the charts' default images and do not cover
+those overrides.
+
 On October 13, 2026, the installer was exercised on an OpenShift `4.21.8` cluster
 with RHOAI installed, OVN Kubernetes, `gp3-csi` storage, Agent Sandbox `v1.0.6`, and
 an existing Red Hat build of Keycloak `26.4.10`. A dedicated test realm supplied

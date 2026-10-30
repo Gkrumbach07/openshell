@@ -202,31 +202,43 @@ class InstallTests(unittest.TestCase):
         gateway, _ = installer.chart_values(self.load())
         self.assertEqual(gateway["gateway"]["image"], image)
 
-    def test_warns_when_old_dashboard_chart_cannot_pass_custom_user_role(self):
-        for version in ("0.1.1", "0.1.2-rc.1"):
+    def test_dashboard_role_warning_uses_rendered_chart_capability(self):
+        def manifest(role=None):
+            env = [{"name": "ADMIN_ROLE", "value": "openshell-admin"}]
+            if role is not None:
+                env.append({"name": "USER_ROLE", "value": role})
+            return json.dumps(
+                {
+                    "kind": "Deployment",
+                    "spec": {"template": {"spec": {"containers": [{"env": env}]}}},
+                }
+            )
+
+        for version in ("0.1.1", "0.0.0-dev.03995be"):
             with self.subTest(version=version):
-                self.config["dashboard"]["version"] = version
                 stderr = io.StringIO()
                 with redirect_stderr(stderr):
-                    self.load()
-                self.assertIn("charts before 0.1.2", stderr.getvalue())
-                self.assertIn("openshell-user", stderr.getvalue())
+                    installer.warn_if_dashboard_user_role_missing(
+                        manifest(), "openshell-user", version
+                    )
+                self.assertIn(version, stderr.getvalue())
+                self.assertIn(
+                    "did not render USER_ROLE='openshell-user'", stderr.getvalue()
+                )
 
-        self.config["dashboard"]["version"] = "0.1.1"
-        self.config["oidc"]["user_role"] = "user"
+        for version in ("0.1.2", "0.0.0-dev.e7fdd6b"):
+            with self.subTest(version=version):
+                stderr = io.StringIO()
+                with redirect_stderr(stderr):
+                    installer.warn_if_dashboard_user_role_missing(
+                        manifest("openshell-user"), "openshell-user", version
+                    )
+                self.assertEqual(stderr.getvalue(), "")
+
         stderr = io.StringIO()
         with redirect_stderr(stderr):
-            self.load()
+            installer.warn_if_dashboard_user_role_missing(manifest(), "user", "0.1.1")
         self.assertEqual(stderr.getvalue(), "")
-
-        self.config["oidc"]["user_role"] = "openshell-user"
-        for version in ("0.1.2", "0.1.2+build.1", "0.0.0-dev.e7fdd6b"):
-            with self.subTest(version=version):
-                self.config["dashboard"]["version"] = version
-                stderr = io.StringIO()
-                with redirect_stderr(stderr):
-                    self.load()
-                self.assertEqual(stderr.getvalue(), "")
 
     def test_yaml_overlays_merge_in_order_and_preserve_managed_values(self):
         (self.root / "base.yaml").write_text(

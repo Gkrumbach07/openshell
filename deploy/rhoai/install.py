@@ -163,8 +163,6 @@ def load_config(path, namespace=None):
             item["version"] != "0.0.0",
             "Use a published release or pinned development version",
         )
-        if name == "dashboard":
-            dashboard_version_match = version_match
         sources = item.get("values_files", [])
         require(
             isinstance(sources, list)
@@ -295,26 +293,41 @@ def load_config(path, namespace=None):
                 f"Missing or empty oidc.{key}",
             )
             oidc[key] = str(source)
-    dashboard_version = tuple(
-        int(part) for part in dashboard_version_match.group(1, 2, 3)
-    )
-    prerelease = dashboard_version_match.group("prerelease")
-    before_role_chart = dashboard_version < MIN_DASHBOARD_USER_ROLE_CHART or (
-        dashboard_version == MIN_DASHBOARD_USER_ROLE_CHART and prerelease is not None
-    )
-    is_development_chart = dashboard_version == (0, 0, 0) and (
-        prerelease or ""
-    ).startswith("-dev.")
-    if before_role_chart and not is_development_chart and oidc["user_role"] != "user":
-        minimum_chart = ".".join(str(part) for part in MIN_DASHBOARD_USER_ROLE_CHART)
-        print(
-            f"Warning: dashboard charts before {minimum_chart} may not pass oidc.userRole. "
-            "Dashboard builds with the entitlement page may deny users with only "
-            f"the {oidc['user_role']!r} role. Pair chart {minimum_chart} or later with a "
-            "matching image, or use a pre-entitlement dashboard build.",
-            file=sys.stderr,
-        )
     return config
+
+
+def warn_if_dashboard_user_role_missing(manifest, role, chart_version):
+    """Warn from the rendered chart, since development versions do not imply features."""
+    if role == "user":
+        return
+    try:
+        for resource in yaml.safe_load_all(manifest):
+            if not isinstance(resource, dict):
+                continue
+            if resource.get("kind") == "Pod":
+                pod = resource
+            elif resource.get("kind") in ("Deployment", "StatefulSet", "DaemonSet"):
+                pod = resource.get("spec", {}).get("template", {})
+            else:
+                continue
+            for container in pod.get("spec", {}).get("containers", []):
+                if any(
+                    env.get("name") == "USER_ROLE" and env.get("value") == role
+                    for env in container.get("env", [])
+                    if isinstance(env, dict)
+                ):
+                    return
+    except yaml.YAMLError:
+        # Helm output can include Secrets; do not include parser excerpts.
+        raise ValueError("Cannot inspect dashboard chart manifest") from None
+    minimum_chart = ".".join(str(part) for part in MIN_DASHBOARD_USER_ROLE_CHART)
+    print(
+        f"Warning: dashboard chart {chart_version} did not render USER_ROLE={role!r}. "
+        "Dashboard builds with the entitlement page may deny users with only "
+        f"that role. Pair chart {minimum_chart} or later with a matching image, "
+        "or use a pre-entitlement dashboard build.",
+        file=sys.stderr,
+    )
 
 
 def chart_values(config):
@@ -981,7 +994,7 @@ def main():
             value_file = root / f"{name}.json"
             value_file.write_text(json.dumps(values))
             release = ("openshell", "openshell-dashboard")[index]
-            installer.run(
+            manifest = installer.run(
                 [
                     "helm",
                     "template",
@@ -997,6 +1010,10 @@ def main():
                     "agents.x-k8s.io/v1beta1",
                 ]
             )
+            if name == "dashboard":
+                warn_if_dashboard_user_role_missing(
+                    manifest, config["oidc"]["user_role"], config[name]["version"]
+                )
             charts.append(chart)
             files.append(value_file)
         print(

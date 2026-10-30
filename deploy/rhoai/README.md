@@ -118,8 +118,9 @@ Builds from fork commit `1c45566` onward add the dashboard's entitlement page,
 which reads the user role the installer passes as `oidc.userRole`. Chart `0.1.2`
 and later pass it to the dashboard. Chart `0.1.1` does not, so a newer build on
 it refuses users whose only role is `user_role` unless that role is named `user`.
-The installer warns about this combination when using a chart below `0.1.2`
-with a custom user role.
+The installer checks the rendered chart and warns if it does not pass a custom
+`USER_ROLE`, including for pinned development charts. Development chart version
+syntax alone does not establish which features its templates contain.
 
 The example also sets `gateway.images` to the ODH builds of the gateway,
 supervisor, and sandbox runtime (`quay.io/opendatahub/odh-openshell-gateway`,
